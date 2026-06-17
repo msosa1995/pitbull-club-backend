@@ -1,0 +1,7 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "python manage.py migrate && python manage.py collectstatic --noinput && waitress-serve --host=0.0.0.0 --port=$PORT pitbull_project.wsgi:application"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
