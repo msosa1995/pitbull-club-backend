@@ -1,8 +1,10 @@
-from rest_framework import viewsets, filters
+from rest_framework import viewsets, filters, serializers as drf_serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticatedOrReadOnly, AllowAny
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticatedOrReadOnly, AllowAny, IsAuthenticated, IsAdminUser
 from django.db.models import Count
+from django.contrib.auth.models import User
 from .models import Integrante, Perro, Evento, Noticia, Campeonato, Camada
 from .serializers import (
     IntegranteSerializer, IntegranteListSerializer, IntegranteMapaSerializer,
@@ -38,6 +40,62 @@ CIUDADES_COORDS = {
     'paraguay': (-25.2867, -57.6470),
 }
 
+
+# ─── ENDPOINTS DE SESIÓN ────────────────────────────────────────────────────
+
+class MeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        data = {
+            'id': user.id,
+            'username': user.username,
+            'is_staff': user.is_staff,
+            'is_superuser': user.is_superuser,
+            'integrante_id': None,
+            'nombre': user.username,
+            'debe_cambiar_password': False,
+        }
+        try:
+            i = user.integrante
+            data['integrante_id'] = i.id
+            data['nombre'] = i.apodo or i.nombre
+            data['debe_cambiar_password'] = i.debe_cambiar_password
+        except Exception:
+            pass
+        return Response(data)
+
+
+class CambiarPasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        old_password = request.data.get('old_password', '')
+        new_password = request.data.get('new_password', '')
+
+        if not old_password or not new_password:
+            return Response({'error': 'Ambos campos son requeridos'}, status=400)
+
+        if not request.user.check_password(old_password):
+            return Response({'error': 'Contraseña actual incorrecta'}, status=400)
+
+        if len(new_password) < 6:
+            return Response({'error': 'La nueva contraseña debe tener al menos 6 caracteres'}, status=400)
+
+        request.user.set_password(new_password)
+        request.user.save()
+
+        try:
+            request.user.integrante.debe_cambiar_password = False
+            request.user.integrante.save()
+        except Exception:
+            pass
+
+        return Response({'ok': True})
+
+
+# ─── INTEGRANTES ────────────────────────────────────────────────────────────
 
 class IntegranteViewSet(viewsets.ModelViewSet):
     queryset = Integrante.objects.annotate(total_perros=Count('perros'))
@@ -96,6 +154,28 @@ class IntegranteViewSet(viewsets.ModelViewSet):
                 })
         return Response(resultado)
 
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
+    def crear_usuario(self, request, pk=None):
+        integrante = self.get_object()
+
+        if not integrante.cedula:
+            return Response({'error': 'El integrante no tiene cédula registrada'}, status=400)
+
+        if integrante.usuario:
+            return Response({'error': 'El integrante ya tiene usuario creado'}, status=400)
+
+        if User.objects.filter(username=integrante.cedula).exists():
+            return Response({'error': f'Ya existe un usuario con cédula {integrante.cedula}'}, status=400)
+
+        user = User.objects.create_user(username=integrante.cedula, password='pitbull123')
+        integrante.usuario = user
+        integrante.debe_cambiar_password = True
+        integrante.save()
+
+        return Response({'ok': True, 'username': integrante.cedula, 'password_inicial': 'pitbull123'})
+
+
+# ─── PERROS ─────────────────────────────────────────────────────────────────
 
 class PerroViewSet(viewsets.ModelViewSet):
     queryset = Perro.objects.select_related('dueno').all()
@@ -125,6 +205,85 @@ class PerroViewSet(viewsets.ModelViewSet):
             qs = qs.filter(destacado=True)
         return qs
 
+
+# ─── PANEL DE MIEMBRO ────────────────────────────────────────────────────────
+
+class MisPerrosViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return PerroListSerializer
+        return PerroSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff or user.is_superuser:
+            return Perro.objects.select_related('dueno').all()
+        try:
+            return Perro.objects.select_related('dueno').filter(dueno=user.integrante)
+        except Exception:
+            return Perro.objects.none()
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        if not (user.is_staff or user.is_superuser):
+            try:
+                serializer.save(dueno=user.integrante)
+            except Exception:
+                raise drf_serializers.ValidationError('No tenés perfil de integrante asociado')
+        else:
+            serializer.save()
+
+    def perform_update(self, serializer):
+        obj = self.get_object()
+        user = self.request.user
+        if not (user.is_staff or user.is_superuser):
+            try:
+                if obj.dueno != user.integrante:
+                    raise drf_serializers.ValidationError('No podés editar perros de otro integrante')
+            except Exception:
+                raise drf_serializers.ValidationError('Sin permisos')
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        user = self.request.user
+        if not (user.is_staff or user.is_superuser):
+            try:
+                if instance.dueno != user.integrante:
+                    raise drf_serializers.ValidationError('No podés eliminar perros de otro integrante')
+            except Exception:
+                raise drf_serializers.ValidationError('Sin permisos')
+        instance.delete()
+
+
+class MisCamadasViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CamadaSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff or user.is_superuser:
+            return Camada.objects.select_related('madre', 'padre', 'madre__dueno').all()
+        try:
+            return Camada.objects.select_related('madre', 'padre').filter(madre__dueno=user.integrante)
+        except Exception:
+            return Camada.objects.none()
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        if not (user.is_staff or user.is_superuser):
+            madre_id = self.request.data.get('madre')
+            try:
+                madre = Perro.objects.get(id=madre_id, dueno=user.integrante, sexo='H')
+                serializer.save(madre=madre)
+            except Perro.DoesNotExist:
+                raise drf_serializers.ValidationError('La madre seleccionada no es tuya o no es hembra')
+        else:
+            serializer.save()
+
+
+# ─── OTROS ──────────────────────────────────────────────────────────────────
 
 class EventoViewSet(viewsets.ModelViewSet):
     queryset = Evento.objects.filter(activo=True)

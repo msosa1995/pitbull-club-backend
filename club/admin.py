@@ -36,24 +36,57 @@ class CamadaInline(admin.TabularInline):
 
 @admin.register(Integrante)
 class IntegranteAdmin(admin.ModelAdmin):
-    list_display = ['nombre', 'apodo', 'ciudad', 'pais', 'whatsapp', 'activo', 'total_perros', 'tiene_coords']
-    list_filter = ['activo', 'pais', 'ciudad']
-    search_fields = ['nombre', 'apodo', 'ciudad']
+    list_display = ['nombre', 'apodo', 'cedula', 'ciudad', 'whatsapp', 'activo', 'total_perros', 'tiene_usuario', 'tiene_coords']
+    list_filter = ['activo', 'pais', 'ciudad', 'debe_cambiar_password']
+    search_fields = ['nombre', 'apodo', 'ciudad', 'cedula']
     inlines = [PerroInline]
     fieldsets = [
         (None, {'fields': ['nombre', 'apodo', 'ciudad', 'pais', 'whatsapp', 'email', 'activo', 'foto', 'notas']}),
+        ('Acceso al sistema', {'fields': ['cedula', 'usuario', 'debe_cambiar_password'],
+            'description': 'Ingresá la cédula y luego usá la acción "Crear usuario" para generar el acceso.'}),
         ('Ubicación en mapa', {'fields': ['latitud', 'longitud'], 'classes': ['collapse'],
             'description': 'Opcional. Si no se completa, se usa la ciudad para ubicar en el mapa.'}),
     ]
+    actions = ['crear_usuarios_accion']
 
     def total_perros(self, obj):
         return obj.perros.count()
     total_perros.short_description = 'Perros'
 
+    def tiene_usuario(self, obj):
+        return obj.usuario is not None
+    tiene_usuario.boolean = True
+    tiene_usuario.short_description = 'Usuario'
+
     def tiene_coords(self, obj):
         return obj.latitud is not None and obj.longitud is not None
     tiene_coords.boolean = True
     tiene_coords.short_description = 'GPS'
+
+    def crear_usuarios_accion(self, request, queryset):
+        from django.contrib.auth.models import User
+        creados = 0
+        errores = []
+        for integrante in queryset:
+            if integrante.usuario:
+                errores.append(f'{integrante.nombre}: ya tiene usuario')
+                continue
+            if not integrante.cedula:
+                errores.append(f'{integrante.nombre}: sin cédula')
+                continue
+            if User.objects.filter(username=integrante.cedula).exists():
+                errores.append(f'{integrante.nombre}: cédula {integrante.cedula} ya en uso')
+                continue
+            user = User.objects.create_user(username=integrante.cedula, password='pitbull123')
+            integrante.usuario = user
+            integrante.debe_cambiar_password = True
+            integrante.save()
+            creados += 1
+        msg = f'{creados} usuario(s) creado(s) con contraseña "pitbull123".'
+        if errores:
+            msg += ' Errores: ' + ' | '.join(errores)
+        self.message_user(request, msg)
+    crear_usuarios_accion.short_description = 'Crear usuario (cédula + pitbull123)'
 
 
 @admin.register(Perro)

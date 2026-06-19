@@ -14,6 +14,13 @@ class Integrante(models.Model):
     notas = models.TextField(blank=True)
     latitud = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitud = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    cedula = models.CharField(max_length=20, blank=True, null=True, unique=True, verbose_name='Nro. Cédula')
+    usuario = models.OneToOneField(
+        'auth.User', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='integrante',
+        verbose_name='Usuario del sistema'
+    )
+    debe_cambiar_password = models.BooleanField(default=True, verbose_name='Debe cambiar contraseña')
 
     class Meta:
         ordering = ['nombre']
