@@ -239,6 +239,60 @@ class IntegranteViewSet(viewsets.ModelViewSet):
         return IntegranteSerializer
 
     @action(detail=False, methods=['get'], permission_classes=[AllowAny])
+    def publico(self, request):
+        qs = Integrante.objects.filter(activo=True).annotate(total_perros=Count('perros'))
+        search = request.query_params.get('search', '')
+        if search:
+            qs = qs.filter(nombre__icontains=search) | Integrante.objects.filter(activo=True, apodo__icontains=search).annotate(total_perros=Count('perros'))
+        result = []
+        for i in qs.order_by('nombre'):
+            foto_url = None
+            if i.foto:
+                foto_url = request.build_absolute_uri(i.foto.url)
+            result.append({
+                'id': i.id,
+                'nombre': i.nombre,
+                'apodo': i.apodo,
+                'ciudad': i.ciudad,
+                'foto_url': foto_url,
+                'total_perros': i.total_perros,
+            })
+        return Response(result)
+
+    @action(detail=True, methods=['get'], permission_classes=[AllowAny], url_path='perfil')
+    def perfil_publico(self, request, pk=None):
+        try:
+            i = Integrante.objects.get(pk=pk, activo=True)
+        except Integrante.DoesNotExist:
+            return Response({'error': 'Socio no encontrado'}, status=404)
+        foto_url = request.build_absolute_uri(i.foto.url) if i.foto else None
+        perros = []
+        for p in i.perros.filter(estado='activo').order_by('nombre'):
+            foto_perro = request.build_absolute_uri(p.foto_principal.url) if p.foto_principal else None
+            perros.append({
+                'id': p.id,
+                'nombre': p.nombre,
+                'raza': p.raza,
+                'raza_display': p.get_raza_display(),
+                'variante_display': p.get_variante_display(),
+                'sexo_display': p.get_sexo_display(),
+                'color': p.color,
+                'kennel': p.kennel,
+                'tiene_registro': p.tiene_registro,
+                'foto_url': foto_perro,
+                'total_camadas': p.camadas_como_madre.filter(activo=True).count() + p.camadas_como_padre.filter(activo=True).count(),
+            })
+        return Response({
+            'id': i.id,
+            'nombre': i.nombre,
+            'apodo': i.apodo,
+            'ciudad': i.ciudad,
+            'foto_url': foto_url,
+            'total_perros': len(perros),
+            'perros': perros,
+        })
+
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny])
     def stats(self, request):
         total_integrantes = Integrante.objects.count()
         activos = Integrante.objects.filter(activo=True).count()
