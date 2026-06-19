@@ -12,6 +12,8 @@ class Integrante(models.Model):
     activo = models.BooleanField(default=True)
     foto = models.ImageField(upload_to='integrantes/', blank=True, null=True)
     notas = models.TextField(blank=True)
+    latitud = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitud = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
 
     class Meta:
         ordering = ['nombre']
@@ -194,3 +196,39 @@ class PuntoCampeonato(models.Model):
 
     def __str__(self):
         return f'{self.perro.nombre} — {self.campeonato} — {self.puntos}pts'
+
+
+class Camada(models.Model):
+    madre = models.ForeignKey(
+        Perro, on_delete=models.CASCADE,
+        related_name='camadas_como_madre',
+        limit_choices_to={'sexo': 'H'},
+        verbose_name='Madre'
+    )
+    padre = models.ForeignKey(
+        Perro, on_delete=models.SET_NULL,
+        related_name='camadas_como_padre',
+        null=True, blank=True,
+        limit_choices_to={'sexo': 'M'},
+        verbose_name='Padre (del club)'
+    )
+    padre_externo = models.CharField(
+        max_length=100, blank=True,
+        help_text='Nombre del padre si no es integrante del club'
+    )
+    fecha_nacimiento = models.DateField(verbose_name='Fecha de nacimiento')
+    cantidad_total = models.IntegerField(default=0, verbose_name='Total cachorros')
+    cantidad_machos = models.IntegerField(default=0, verbose_name='Machos')
+    cantidad_hembras = models.IntegerField(default=0, verbose_name='Hembras')
+    notas = models.TextField(blank=True)
+    activo = models.BooleanField(default=True)
+    fecha_registro = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-fecha_nacimiento']
+        verbose_name = 'Camada'
+        verbose_name_plural = 'Camadas'
+
+    def __str__(self):
+        padre_str = self.padre.nombre if self.padre else self.padre_externo or 'Padre desconocido'
+        return f'{self.madre.nombre} × {padre_str} ({self.fecha_nacimiento})'

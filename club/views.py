@@ -3,12 +3,40 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticatedOrReadOnly, AllowAny
 from django.db.models import Count
-from .models import Integrante, Perro, Evento, Noticia, Campeonato
+from .models import Integrante, Perro, Evento, Noticia, Campeonato, Camada
 from .serializers import (
-    IntegranteSerializer, IntegranteListSerializer,
+    IntegranteSerializer, IntegranteListSerializer, IntegranteMapaSerializer,
     PerroSerializer, PerroListSerializer,
-    EventoSerializer, NoticiaSerializer, CampeonatoSerializer,
+    EventoSerializer, NoticiaSerializer, CampeonatoSerializer, CamadaSerializer,
 )
+
+CIUDADES_COORDS = {
+    'asunción': (-25.2867, -57.6470),
+    'asuncion': (-25.2867, -57.6470),
+    'luque': (-25.2667, -57.4833),
+    'san lorenzo': (-25.3333, -57.5167),
+    'lambaré': (-25.3500, -57.6167),
+    'lambare': (-25.3500, -57.6167),
+    'capiatá': (-25.3500, -57.4500),
+    'capiata': (-25.3500, -57.4500),
+    'fernando de la mora': (-25.3333, -57.5667),
+    'limpio': (-25.1667, -57.4833),
+    'ñemby': (-25.3833, -57.5333),
+    'nemby': (-25.3833, -57.5333),
+    'mariano roque alonso': (-25.2000, -57.5333),
+    'ciudad del este': (-25.5167, -54.6167),
+    'encarnación': (-27.3333, -55.8667),
+    'encarnacion': (-27.3333, -55.8667),
+    'coronel oviedo': (-25.4500, -56.4333),
+    'caaguazú': (-25.4667, -56.0167),
+    'caaguazu': (-25.4667, -56.0167),
+    'pedro juan caballero': (-22.5333, -55.7333),
+    'concepción': (-23.4167, -57.4333),
+    'concepcion': (-23.4167, -57.4333),
+    'villarrica': (-25.7500, -56.4333),
+    'pilar': (-26.8667, -58.3000),
+    'paraguay': (-25.2867, -57.6470),
+}
 
 
 class IntegranteViewSet(viewsets.ModelViewSet):
@@ -41,6 +69,32 @@ class IntegranteViewSet(viewsets.ModelViewSet):
             'con_registro': con_registro,
             'total_eventos': total_eventos,
         })
+
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny])
+    def mapa(self, request):
+        integrantes = Integrante.objects.filter(activo=True).annotate(
+            total_perros=Count('perros', distinct=True),
+            total_camadas=Count('perros__camadas_como_madre', distinct=True),
+        )
+        resultado = []
+        for i in integrantes:
+            lat = float(i.latitud) if i.latitud else None
+            lng = float(i.longitud) if i.longitud else None
+            if lat is None or lng is None:
+                coords = CIUDADES_COORDS.get(i.ciudad.lower().strip())
+                if coords:
+                    lat, lng = coords
+            if lat is not None and lng is not None:
+                resultado.append({
+                    'id': i.id,
+                    'nombre': i.apodo if i.apodo else i.nombre,
+                    'ciudad': i.ciudad,
+                    'lat': lat,
+                    'lng': lng,
+                    'total_perros': i.total_perros,
+                    'total_camadas': i.total_camadas,
+                })
+        return Response(resultado)
 
 
 class PerroViewSet(viewsets.ModelViewSet):
@@ -98,3 +152,18 @@ class CampeonatoViewSet(viewsets.ModelViewSet):
     queryset = Campeonato.objects.all()
     serializer_class = CampeonatoSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
+
+
+class CamadaViewSet(viewsets.ModelViewSet):
+    queryset = Camada.objects.select_related('madre', 'padre', 'madre__dueno').all()
+    serializer_class = CamadaSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['fecha_nacimiento', 'cantidad_total']
+
+    def get_queryset(self):
+        qs = Camada.objects.select_related('madre', 'padre', 'madre__dueno').all()
+        madre_id = self.request.query_params.get('madre')
+        if madre_id:
+            qs = qs.filter(madre_id=madre_id)
+        return qs

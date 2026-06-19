@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Integrante, Perro, FotoPerro, Titulo, Evento, Noticia, Campeonato, PuntoCampeonato
+from .models import Integrante, Perro, FotoPerro, Titulo, Evento, Noticia, Campeonato, PuntoCampeonato, Camada
 
 
 class FotoPerroSerializer(serializers.ModelSerializer):
@@ -131,3 +131,23 @@ class CampeonatoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Campeonato
         fields = '__all__'
+
+
+class CamadaSerializer(serializers.ModelSerializer):
+    madre_nombre = serializers.CharField(source='madre.nombre', read_only=True)
+    madre_raza = serializers.CharField(source='madre.raza', read_only=True)
+    padre_nombre = serializers.CharField(source='padre.nombre', read_only=True, allow_null=True)
+    dueno_nombre = serializers.CharField(source='madre.dueno.nombre', read_only=True)
+
+    class Meta:
+        model = Camada
+        fields = '__all__'
+
+
+class IntegranteMapaSerializer(serializers.ModelSerializer):
+    total_perros = serializers.IntegerField(read_only=True)
+    total_camadas = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Integrante
+        fields = ['id', 'nombre', 'apodo', 'ciudad', 'pais', 'latitud', 'longitud', 'activo', 'total_perros', 'total_camadas']
