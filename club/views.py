@@ -148,6 +148,54 @@ class MeView(APIView):
         return Response(data)
 
 
+class MiPerfilView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            i = request.user.integrante
+        except Exception:
+            return Response({'error': 'Sin perfil de integrante'}, status=404)
+        foto_url = None
+        if i.foto:
+            foto_url = request.build_absolute_uri(i.foto.url)
+        return Response({
+            'id': i.id,
+            'nombre': i.nombre,
+            'apodo': i.apodo,
+            'ciudad': i.ciudad,
+            'pais': i.pais,
+            'whatsapp': i.whatsapp,
+            'email': i.email,
+            'cedula': i.cedula or '',
+            'foto_url': foto_url,
+        })
+
+    def patch(self, request):
+        try:
+            i = request.user.integrante
+        except Exception:
+            return Response({'error': 'Sin perfil de integrante'}, status=404)
+
+        for campo in ['ciudad', 'whatsapp', 'email', 'apodo']:
+            if campo in request.data:
+                setattr(i, campo, request.data[campo])
+
+        if 'cedula' in request.data:
+            nueva_ci = request.data['cedula'].strip() or None
+            from django.db.models import Q
+            if nueva_ci and Integrante.objects.filter(cedula=nueva_ci).exclude(pk=i.pk).exists():
+                return Response({'error': 'Esa cédula ya está registrada para otro integrante.'}, status=400)
+            i.cedula = nueva_ci
+
+        if 'foto' in request.FILES:
+            i.foto = request.FILES['foto']
+
+        i.save()
+        foto_url = request.build_absolute_uri(i.foto.url) if i.foto else None
+        return Response({'ok': True, 'foto_url': foto_url})
+
+
 class CambiarPasswordView(APIView):
     permission_classes = [IsAuthenticated]
 
