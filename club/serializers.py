@@ -59,6 +59,7 @@ class PerroSerializer(serializers.ModelSerializer):
     class Meta:
         model = Perro
         fields = '__all__'
+        extra_kwargs = {'dueno': {'required': False}}
 
 
 class IntegranteListSerializer(serializers.ModelSerializer):
