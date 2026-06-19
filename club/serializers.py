@@ -29,6 +29,8 @@ class PerroListSerializer(serializers.ModelSerializer):
     sexo_display = serializers.CharField(source='get_sexo_display', read_only=True)
     estado_display = serializers.CharField(source='get_estado_display', read_only=True)
     foto_url = serializers.SerializerMethodField()
+    total_camadas = serializers.SerializerMethodField()
+    total_cachorros = serializers.SerializerMethodField()
 
     class Meta:
         model = Perro
@@ -36,7 +38,7 @@ class PerroListSerializer(serializers.ModelSerializer):
             'id', 'nombre', 'raza', 'raza_display', 'variante', 'variante_display',
             'sexo', 'sexo_display', 'color', 'fecha_nacimiento', 'tiene_registro',
             'numero_registro', 'kennel', 'estado', 'estado_display', 'destacado',
-            'dueno_nombre', 'foto_url',
+            'dueno_nombre', 'foto_url', 'total_camadas', 'total_cachorros',
         ]
 
     def get_foto_url(self, obj):
@@ -44,6 +46,18 @@ class PerroListSerializer(serializers.ModelSerializer):
         if obj.foto_principal and request:
             return request.build_absolute_uri(obj.foto_principal.url)
         return None
+
+    def get_total_camadas(self, obj):
+        return (
+            obj.camadas_como_madre.filter(activo=True).count() +
+            obj.camadas_como_padre.filter(activo=True).count()
+        )
+
+    def get_total_cachorros(self, obj):
+        from django.db.models import Sum
+        m = obj.camadas_como_madre.filter(activo=True).aggregate(t=Sum('cantidad_total'))['t'] or 0
+        p = obj.camadas_como_padre.filter(activo=True).aggregate(t=Sum('cantidad_total'))['t'] or 0
+        return m + p
 
 
 class PerroSerializer(serializers.ModelSerializer):
