@@ -63,10 +63,14 @@ class PerroSerializer(serializers.ModelSerializer):
 
 class IntegranteListSerializer(serializers.ModelSerializer):
     total_perros = serializers.IntegerField(read_only=True)
+    tiene_usuario = serializers.SerializerMethodField()
 
     class Meta:
         model = Integrante
-        fields = ['id', 'nombre', 'apodo', 'ciudad', 'pais', 'whatsapp', 'activo', 'foto', 'total_perros']
+        fields = ['id', 'nombre', 'apodo', 'ciudad', 'pais', 'whatsapp', 'activo', 'foto', 'total_perros', 'cedula', 'tiene_usuario']
+
+    def get_tiene_usuario(self, obj):
+        return obj.usuario_id is not None
 
 
 class IntegranteSerializer(serializers.ModelSerializer):
