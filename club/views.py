@@ -43,6 +43,62 @@ CIUDADES_COORDS = {
 
 # ─── ENDPOINTS DE SESIÓN ────────────────────────────────────────────────────
 
+class VerificarCIView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        cedula = request.data.get('cedula', '').strip()
+        if not cedula:
+            return Response({'error': 'Ingresá tu CI'}, status=400)
+
+        integrante = Integrante.objects.filter(cedula=cedula, activo=True).first()
+        if integrante:
+            return Response({
+                'existe': True,
+                'tipo': 'miembro',
+                'primer_ingreso': integrante.usuario is None,
+                'nombre': integrante.apodo or integrante.nombre.split()[0],
+            })
+
+        # Permite login de admin (sosaro u otros usuarios Django)
+        if User.objects.filter(username=cedula, is_staff=True).exists():
+            return Response({'existe': True, 'tipo': 'admin', 'primer_ingreso': False, 'nombre': cedula})
+
+        return Response({'existe': False, 'error': 'CI no encontrada en el registro del club'}, status=404)
+
+
+class ActivarCuentaView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        cedula = request.data.get('cedula', '').strip()
+        password = request.data.get('password', '')
+
+        if not cedula or not password:
+            return Response({'error': 'Datos incompletos'}, status=400)
+
+        if len(password) < 6:
+            return Response({'error': 'La contraseña debe tener al menos 6 caracteres'}, status=400)
+
+        try:
+            integrante = Integrante.objects.get(cedula=cedula, activo=True)
+        except Integrante.DoesNotExist:
+            return Response({'error': 'CI no encontrada'}, status=404)
+
+        if integrante.usuario:
+            return Response({'error': 'Esta cuenta ya está activada. Usá tu contraseña.'}, status=400)
+
+        user = User.objects.create_user(username=cedula, password=password)
+        integrante.usuario = user
+        integrante.debe_cambiar_password = False
+        integrante.save()
+
+        refresh = RefreshToken.for_user(user)
+        return Response({'access': str(refresh.access_token), 'refresh': str(refresh)})
+
+
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
