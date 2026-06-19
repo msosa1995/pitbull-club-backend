@@ -270,6 +270,41 @@ class PerroViewSet(viewsets.ModelViewSet):
             return PerroListSerializer
         return PerroSerializer
 
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny], url_path='mapa-razas')
+    def mapa_razas(self, request):
+        from django.db.models import Count
+        from collections import defaultdict
+
+        filas = (
+            Perro.objects
+            .filter(dueno__activo=True, estado='activo')
+            .values('dueno__ciudad', 'raza')
+            .annotate(total=Count('id'))
+        )
+
+        ciudades = defaultdict(lambda: {'pitbulls': 0, 'bullys': 0})
+        for fila in filas:
+            ciudad = (fila['dueno__ciudad'] or '').strip()
+            if fila['raza'] == 'pitbull':
+                ciudades[ciudad]['pitbulls'] += fila['total']
+            elif fila['raza'] == 'bully':
+                ciudades[ciudad]['bullys'] += fila['total']
+
+        resultado = []
+        for ciudad, counts in ciudades.items():
+            coords = CIUDADES_COORDS.get(ciudad.lower())
+            if coords:
+                resultado.append({
+                    'ciudad': ciudad,
+                    'lat': coords[0],
+                    'lng': coords[1],
+                    'pitbulls': counts['pitbulls'],
+                    'bullys': counts['bullys'],
+                    'total': counts['pitbulls'] + counts['bullys'],
+                })
+
+        return Response(sorted(resultado, key=lambda x: -x['total']))
+
     def get_queryset(self):
         qs = Perro.objects.select_related('dueno').all()
         raza = self.request.query_params.get('raza')
