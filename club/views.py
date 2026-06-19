@@ -43,15 +43,29 @@ CIUDADES_COORDS = {
 
 # ─── ENDPOINTS DE SESIÓN ────────────────────────────────────────────────────
 
+def normalizar_tel(numero):
+    import re
+    return re.sub(r'[\s\-\.\(\)]', '', numero or '')
+
+
 class VerificarCIView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        cedula = request.data.get('cedula', '').strip()
-        if not cedula:
-            return Response({'error': 'Ingresá tu CI'}, status=400)
+        telefono = normalizar_tel(request.data.get('cedula', ''))
+        if not telefono:
+            return Response({'error': 'Ingresá tu número de WhatsApp'}, status=400)
 
-        integrante = Integrante.objects.filter(cedula=cedula, activo=True).first()
+        # Buscar por whatsapp normalizado o por cedula
+        integrante = None
+        for i in Integrante.objects.filter(activo=True):
+            if normalizar_tel(i.whatsapp) == telefono:
+                integrante = i
+                break
+            if i.cedula and normalizar_tel(i.cedula) == telefono:
+                integrante = i
+                break
+
         if integrante:
             return Response({
                 'existe': True,
@@ -60,11 +74,11 @@ class VerificarCIView(APIView):
                 'nombre': integrante.apodo or integrante.nombre.split()[0],
             })
 
-        # Permite login de admin (sosaro u otros usuarios Django)
-        if User.objects.filter(username=cedula, is_staff=True).exists():
-            return Response({'existe': True, 'tipo': 'admin', 'primer_ingreso': False, 'nombre': cedula})
+        # Permite login de admin por username (sosaro)
+        if User.objects.filter(username=telefono, is_staff=True).exists():
+            return Response({'existe': True, 'tipo': 'admin', 'primer_ingreso': False, 'nombre': telefono})
 
-        return Response({'existe': False, 'error': 'CI no encontrada en el registro del club'}, status=404)
+        return Response({'existe': False, 'error': 'Número no encontrado en el registro del club'}, status=404)
 
 
 class ActivarCuentaView(APIView):
@@ -73,24 +87,35 @@ class ActivarCuentaView(APIView):
     def post(self, request):
         from rest_framework_simplejwt.tokens import RefreshToken
 
-        cedula = request.data.get('cedula', '').strip()
+        telefono = normalizar_tel(request.data.get('cedula', ''))
         password = request.data.get('password', '')
 
-        if not cedula or not password:
+        if not telefono or not password:
             return Response({'error': 'Datos incompletos'}, status=400)
 
         if len(password) < 6:
             return Response({'error': 'La contraseña debe tener al menos 6 caracteres'}, status=400)
 
-        try:
-            integrante = Integrante.objects.get(cedula=cedula, activo=True)
-        except Integrante.DoesNotExist:
-            return Response({'error': 'CI no encontrada'}, status=404)
+        integrante = None
+        for i in Integrante.objects.filter(activo=True):
+            if normalizar_tel(i.whatsapp) == telefono:
+                integrante = i
+                break
+            if i.cedula and normalizar_tel(i.cedula) == telefono:
+                integrante = i
+                break
+
+        if not integrante:
+            return Response({'error': 'Número no encontrado'}, status=404)
 
         if integrante.usuario:
             return Response({'error': 'Esta cuenta ya está activada. Usá tu contraseña.'}, status=400)
 
-        user = User.objects.create_user(username=cedula, password=password)
+        username = f'tel_{telefono}'
+        if User.objects.filter(username=username).exists():
+            return Response({'error': 'Este número ya tiene usuario. Usá tu contraseña.'}, status=400)
+
+        user = User.objects.create_user(username=username, password=password)
         integrante.usuario = user
         integrante.debe_cambiar_password = False
         integrante.save()
